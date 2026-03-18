@@ -4,21 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Monitor Temperatura ESP32</title>
-<!-- date-fns v2.30.0 -->
-<!-- date-fns (versión que expone funciones globales) -->
+<!-- date-fns (versión que expone window.dateFns) -->
 <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/cdn.min.js"></script>
-<script>window.dateFns = window.dateFns || window.datefns;</script>
 
-<!-- Chart.js v3 -->
+<!-- Chart.js v3 (compatible con el adaptador) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
 
-<!-- Adaptador date-fns v2 (compatible con Chart.js v3) -->
+<!-- Adaptador date-fns v2 (para Chart.js v3) -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.min.js"></script>
 
 <!-- Plugin zoom para Chart.js v3 -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@1.2.0/dist/chartjs-plugin-zoom.min.js"></script>
 
-<!-- MQTT -->
+<!-- Cliente MQTT -->
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌡️</text></svg>">
     <style>
