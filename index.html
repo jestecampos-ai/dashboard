@@ -1,1 +1,3210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Monitor Temperatura ESP32</title>
+    <link rel="icon" href="/favicon.ico">
+    <script src="https://jestecampos-ai.github.io/dashboard/js/chart.min.js"></script>
+    <script src="https://jestecampos-ai.github.io/dashboard/js/chartjs-adapter-date-fns.min.js"></script>
+    <script src="https://jestecampos-ai.github.io/dashboard/js/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        /* Reset y estilos base */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --success-color: #4CAF50;
+            --danger-color: #f44336;
+            --warning-color: #ff9800;
+            --info-color: #2196F3;
+            --light-color: #f8f9fa;
+            --dark-color: #343a40;
+            --border-radius: 12px;
+            --box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            --transition: all 0.3s ease;
+            --border: #e0e0e0;
+            --gray: #666;
+            --shadow: 0 2px 10px rgba(0,0,0,0.08);
+            --radius: 8px;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            min-height: 100vh;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 100%;
+            padding: 15px;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--box-shadow);
+            backdrop-filter: blur(10px);
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            color: var(--dark-color);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .mode-indicator {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .mode-ap {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #f57c00 100%);
+            color: white;
+        }
+        
+        .mode-sta {
+            background: linear-gradient(135deg, var(--success-color) 0%, #45a049 100%);
+            color: white;
+        }
+        
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.02);
+            border-radius: 8px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected {
+            background: var(--success-color);
+        }
+        
+        .status-dot.disconnected {
+            background: var(--danger-color);
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .stats-panel {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: var(--box-shadow);
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid var(--border);
+        }
+        
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .stat-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: var(--dark-color);
+        }
+        
+        .stat-trend {
+            font-size: 12px;
+            font-weight: 500;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        
+        .stat-trend.up {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .stat-trend.down {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .stat-trend.stable {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .stat-values {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: var(--gray);
+        }
+        
+        .stat-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+        
+        .summary-card {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid var(--border);
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .summary-item:last-child {
+            border-bottom: none;
+        }
+        
+        .summary-label {
+            font-size: 13px;
+            color: var(--gray);
+        }
+        
+        .summary-value {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .chart-area-main {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--box-shadow);
+            height: 500px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        .chart-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+        
+        .chart-area {
+            flex: 1;
+            position: relative;
+            min-height: 350px;
+        }
+        
+        #tempChart {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        
+        .chart-legend-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: rgba(0,0,0,0.03);
+            border-radius: 20px;
+            transition: var(--transition);
+            cursor: pointer;
+        }
+        
+        .legend-item:hover {
+            background: rgba(0,0,0,0.05);
+            transform: translateY(-1px);
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .legend-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--dark-color);
+        }
+        
+        .legend-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--dark-color);
+        }
+        
+        .controls-panel {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--box-shadow);
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+        }
+        
+        .panel-section {
+            margin-bottom: 25px;
+        }
+        
+        .panel-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--dark-color);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        .control-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .input-group input[type="number"] {
+            flex: 1;
+            min-width: 60px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .input-group input[type="number"]:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        
+        .btn:active {
+            transform: scale(0.98);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, var(--success-color) 0%, #45a049 100%);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, var(--danger-color) 0%, #da190b 100%);
+            color: white;
+        }
+        
+        .btn-warning {
+            background: linear-gradient(135deg, var(--warning-color) 0%, #f57c00 100%);
+            color: white;
+        }
+        
+        .btn-info {
+            background: linear-gradient(135deg, var(--info-color) 0%, #1976D2 100%);
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+            color: white;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        
+        .btn-icon {
+            min-width: 36px;
+            padding: 8px;
+        }
+        
+        .time-slider-container {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--box-shadow);
+            margin-bottom: 20px;
+        }
+        
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .slider-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+        
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        .time-nav-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 15px 0 5px;
+            gap: 10px;
+        }
+        
+        .time-info-center {
+            flex: 1;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .btn-nav {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        .btn-nav:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        .btn-nav:active {
+            transform: scale(0.95);
+        }
+        
+        .time-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .time-window {
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+        
+        .wifi-config-section {
+            background: #f8f9fa;
+            border-radius: var(--radius);
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid var(--border);
+        }
+        
+        .networks-list {
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 15px 0;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        
+        .network-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            margin: 8px 0;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #ccc;
+            transition: var(--transition);
+        }
+        
+        .network-item.status-success {
+            border-left-color: var(--success-color);
+            background: #f0fff4;
+        }
+        
+        .network-item.status-error {
+            border-left-color: var(--danger-color);
+            background: #fff5f5;
+        }
+        
+        .network-info {
+            flex: 1;
+        }
+        
+        .network-priority {
+            display: inline-block;
+            margin-left: 10px;
+            font-size: 12px;
+            color: var(--gray);
+            background: #e9ecef;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        
+        .network-status {
+            font-size: 12px;
+            color: var(--gray);
+            margin-top: 4px;
+        }
+        
+        .network-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .btn-test, .btn-remove {
+            padding: 4px 8px;
+            font-size: 12px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        
+        .btn-test {
+            background: var(--info-color);
+            color: white;
+        }
+        
+        .btn-remove {
+            background: var(--danger-color);
+            color: white;
+        }
+        
+        .btn-test:hover, .btn-remove:hover {
+            opacity: 0.8;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: var(--border-radius);
+            z-index: 10;
+            backdrop-filter: blur(5px);
+        }
+        
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .progress-bar {
+            width: 80%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success-color), #45a049);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        .progress-info {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: var(--border-radius);
+            width: 90%;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s ease;
+        }
+        
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--dark-color);
+        }
+        
+        .close-btn {
+            font-size: 28px;
+            font-weight: bold;
+            color: #aaa;
+            cursor: pointer;
+            background: none;
+            border: none;
+            transition: var(--transition);
+        }
+        
+        .close-btn:hover {
+            color: var(--danger-color);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: var(--transition);
+        }
+        
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .control-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .input-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .input-row label {
+            min-width: 100px;
+            font-size: 14px;
+        }
+        
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid var(--info-color);
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        
+        .info-box h4 {
+            margin-bottom: 15px;
+            color: var(--info-color);
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        .info-value {
+            font-weight: 600;
+        }
+        
+        .actions-bar {
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: var(--border-radius);
+            padding: 20px;
+            box-shadow: var(--box-shadow);
+            margin-bottom: 20px;
+        }
+        
+        .actions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+        
+        .historical-data-btn {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .historical-data-btn .progress-indicator {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: var(--success-color);
+            transition: width 0.3s ease;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 20px;
+            }
+            
+            .btn {
+                padding: 12px;
+                font-size: 14px;
+            }
+            
+            .modal-content {
+                margin: 5% auto;
+                width: 95%;
+                padding: 20px;
+            }
+            
+            .input-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .input-row label {
+                min-width: auto;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .status-bar {
+                grid-template-columns: 1fr;
+            }
+            
+            .actions-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .summary-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .chart-legend-container {
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+            }
+        }
 
+        /* Estilos para umbrales */
+        .thresholds-section {
+            background: #f8f9fa;
+            border-radius: var(--radius);
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid var(--border);
+        }
+
+        .threshold-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+
+        .threshold-row .sensor-name {
+            width: 120px;
+            font-weight: 600;
+            color: var(--dark-color);
+        }
+
+        .threshold-input {
+            width: 100px;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .threshold-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .threshold-unit {
+            font-size: 12px;
+            color: var(--gray);
+        }
+
+        .threshold-enabled {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .threshold-enabled input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <span>🌡️ Monitor de Temperatura</span>
+                <span id="modeIndicator" class="mode-indicator"></span>
+            </h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="status-dot" id="wsStatus"></span>
+                    <span id="wsStatusText">Conectando...</span>
+                </div>
+                <div class="status-item">
+                    <span>📍</span>
+                    <span id="deviceIP">--:--:--</span>
+                </div>
+                <div class="status-item">
+                    <span>⏰</span>
+                    <span id="currentTime">--:--:--</span>
+                </div>
+                <div class="status-item">
+                    <span>📊</span>
+                    <span id="recordCount">0 registros</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel de Estadísticas -->
+        <div class="stats-panel">
+            <div class="panel-header">
+                <h3>📈 Análisis de Datos</h3>
+                <div class="time-range" id="statsTimeRange">Últimas 24h</div>
+            </div>
+            
+            <div class="stats-grid">
+                <!-- Estadísticas por Sensor -->
+                <div class="stat-card" id="sensorStats1">
+                    <div class="stat-header">
+                        <span class="stat-title">Sensor 1</span>
+                        <span class="stat-trend stable">→ Estable</span>
+                    </div>
+                    <div class="stat-values">
+                        <div class="stat-item">
+                            <span class="stat-label">Actual:</span>
+                            <span class="stat-value" id="stat1Current">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Máx:</span>
+                            <span class="stat-value" id="stat1Max">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Mín:</span>
+                            <span class="stat-value" id="stat1Min">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Prom:</span>
+                            <span class="stat-value" id="stat1Avg">--°C</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="stat-card" id="sensorStats2">
+                    <div class="stat-header">
+                        <span class="stat-title">Sensor 2</span>
+                        <span class="stat-trend stable">→ Estable</span>
+                    </div>
+                    <div class="stat-values">
+                        <div class="stat-item">
+                            <span class="stat-label">Actual:</span>
+                            <span class="stat-value" id="stat2Current">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Máx:</span>
+                            <span class="stat-value" id="stat2Max">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Mín:</span>
+                            <span class="stat-value" id="stat2Min">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Prom:</span>
+                            <span class="stat-value" id="stat2Avg">--°C</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="stat-card" id="sensorStats3">
+                    <div class="stat-header">
+                        <span class="stat-title">Sensor 3</span>
+                        <span class="stat-trend stable">→ Estable</span>
+                    </div>
+                    <div class="stat-values">
+                        <div class="stat-item">
+                            <span class="stat-label">Actual:</span>
+                            <span class="stat-value" id="stat3Current">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Máx:</span>
+                            <span class="stat-value" id="stat3Max">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Mín:</span>
+                            <span class="stat-value" id="stat3Min">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Prom:</span>
+                            <span class="stat-value" id="stat3Avg">--°C</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="stat-card" id="sensorStats4">
+                    <div class="stat-header">
+                        <span class="stat-title">Sensor 4</span>
+                        <span class="stat-trend stable">→ Estable</span>
+                    </div>
+                    <div class="stat-values">
+                        <div class="stat-item">
+                            <span class="stat-label">Actual:</span>
+                            <span class="stat-value" id="stat4Current">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Máx:</span>
+                            <span class="stat-value" id="stat4Max">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Mín:</span>
+                            <span class="stat-value" id="stat4Min">--°C</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Prom:</span>
+                            <span class="stat-value" id="stat4Avg">--°C</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Resumen General -->
+            <div class="summary-card">
+                <h4>📋 Resumen General</h4>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <span class="summary-label">Rango Total:</span>
+                        <span class="summary-value" id="totalRange">--°C a --°C</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Variación Máx:</span>
+                        <span class="summary-value" id="maxVariation">--°C</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Tendencia Prom:</span>
+                        <span class="summary-value" id="avgTrend">Estable</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Datos Válidos:</span>
+                        <span class="summary-value" id="validData">0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Grid: Chart + Controls -->
+        <div class="main-grid">
+            <!-- Chart Area -->
+            <div class="chart-area-main">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">📈 Temperatura en Tiempo Real</div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-info" onclick="debugChart()">
+                                <span>🐛</span>
+                                <span>Debug</span>
+                            </button>
+                            <button class="btn btn-sm btn-success" onclick="autoScaleYAxis()">
+                                <span>⚡</span>
+                                <span>Auto</span>
+                            </button>
+                            <button class="btn btn-sm btn-secondary" onclick="resetZoom()">
+                                <span>🔍</span>
+                                <span>Reiniciar Zoom</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-area">
+                        <div class="loading-overlay" id="chartLoading">
+                            <div class="loading-spinner"></div>
+                            <div id="loadingText">Cargando datos históricos...</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <div class="progress-info">
+                                <div id="progressText">0%</div>
+                                <div id="batchInfo">Esperando primer lote...</div>
+                            </div>
+                            <button class="btn btn-danger" onclick="cancelLoading()" id="cancelBtn" style="margin-top: 15px;">
+                                <span>❌</span>
+                                <span>Cancelar</span>
+                            </button>
+                        </div>
+                        
+                        <canvas id="tempChart"></canvas>
+                    </div>
+                    
+                    <div class="chart-legend-container" id="chartLegend"></div>
+                </div>
+                
+                <div class="time-slider-container">
+                    <div class="slider-header">
+                        <div class="slider-title">⏰ Desplazamiento de Tiempo</div>
+                        <div class="time-window" id="timeWindowInfo">Ventana: 24h</div>
+                    </div>
+                    
+                    <div class="time-display">
+                        <span id="timeStartDisplay">--:--</span>
+                        <span id="timeEndDisplay">--:--</span>
+                    </div>
+                    
+                    <div class="time-nav-container">
+                        <button class="btn btn-nav" onclick="moveTimeLeft(10)" title="Mover izquierda 10%">
+                            ◀
+                        </button>
+                        <div class="time-info-center">
+                            <span id="currentTimePosition">Últimas 24 horas</span>
+                            <button class="btn btn-sm btn-secondary" onclick="resetTimeSlider()">
+                                <span>↺</span>
+                                <span>Reiniciar</span>
+                            </button>
+                        </div>
+                        <button class="btn btn-nav" onclick="moveTimeRight(10)" title="Mover derecha 10%">
+                            ▶
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Controls Panel -->
+            <div class="controls-panel">
+                <div class="panel-section">
+                    <div class="panel-title">
+                        <span>🌡️</span>
+                        <span>Eje Y (Temperatura)</span>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Temperatura Mínima</label>
+                        <div class="input-group">
+                            <input type="number" id="yMinInput" class="control-input" value="0" step="1" onchange="setYAxis('min', this.value)">
+                            <span>°C</span>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('min', -5)">-5</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('min', -1)">-1</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('min', 1)">+1</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('min', 5)">+5</button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Temperatura Máxima</label>
+                        <div class="input-group">
+                            <input type="number" id="yMaxInput" class="control-input" value="50" step="1" onchange="setYAxis('max', this.value)">
+                            <span>°C</span>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('max', -5)">-5</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('max', -1)">-1</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('max', 1)">+1</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYAxis('max', 5)">+5</button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Escala de la Grilla</label>
+                        <div class="input-group">
+                            <input type="number" id="yStepInput" class="control-input" value="5" step="0.1" min="0.1" onchange="setYStep(this.value)">
+                            <span>°C</span>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYStep(-0.5)">-0.5</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYStep(-0.1)">-0.1</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYStep(0.1)">+0.1</button>
+                            <button class="btn btn-sm btn-secondary btn-icon" onclick="adjustYStep(0.5)">+0.5</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <div class="panel-title">
+                        <span>⏰</span>
+                        <span>Eje X (Tiempo)</span>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Rango de Tiempo</label>
+                        <select id="timeRange" class="control-input" onchange="changeTimeRange()">
+                            <option value="30">30 segundos</option>
+                            <option value="60">1 minuto</option>
+                            <option value="300">5 minutos</option>
+                            <option value="600">10 minutos</option>
+                            <option value="1800">30 minutos</option>
+                            <option value="3600">1 hora</option>
+                            <option value="7200">2 horas</option>
+                            <option value="21600">6 horas</option>
+                            <option value="43200" selected>12 horas</option>
+                            <option value="86400">24 horas</option>
+                            <option value="172800">48 horas</option>
+                            <option value="604800">1 semana</option>
+                            <option value="2592000">1 mes</option>
+                            <option value="0">Todos los datos</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>División Temporal</label>
+                        <select id="timeDivision" class="control-input" onchange="setTimeDivision()">
+                            <option value="auto">Automático</option>
+                            <option value="2">2 segundos</option>
+                            <option value="5">5 segundos</option>
+                            <option value="10">10 segundos</option>
+                            <option value="30">30 segundos</option>
+                            <option value="60">1 minuto</option>
+                            <option value="300">5 minutos</option>
+                            <option value="900">15 minutos</option>
+                            <option value="1800">30 minutos</option>
+                            <option value="3600" selected>1 hora</option>
+                            <option value="7200">2 horas</option>
+                            <option value="21600">6 horas</option>
+                            <option value="43200">12 horas</option>
+                            <option value="86400">1 día</option>
+                        </select>
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-primary historical-data-btn" onclick="loadHistoricalData()" id="loadHistoryBtn">
+                            <span class="progress-indicator" id="loadProgress" style="width: 0%"></span>
+                            <span>📥</span>
+                            <span>Cargar Histórico Completo</span>
+                        </button>
+                        <button class="btn btn-success" onclick="reloadAllData()" id="reloadDataBtn">
+                            <span>🔄</span>
+                            <span>Recargar Datos</span>
+                        </button>
+                    </div>
+                    
+                    <div style="margin-top: 10px; font-size: 12px; color: #666; text-align: center;">
+                        <span id="dataInfo">Sin datos históricos cargados</span>
+                    </div>
+                </div>
+                
+                <div class="panel-section">
+                    <div class="panel-title">
+                        <span>💾</span>
+                        <span>Gestión de Datos</span>
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn btn-info" onclick="syncTime()">
+                            <span>🕒</span>
+                            <span>Sincronizar Hora</span>
+                        </button>
+                        <button class="btn btn-warning" onclick="exportData()">
+                            <span>📤</span>
+                            <span>Exportar Datos</span>
+                        </button>
+                        <button class="btn btn-danger" onclick="clearData()">
+                            <span>🗑️</span>
+                            <span>Limpiar Datos</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions Bar -->
+        <div class="actions-bar">
+            <div class="actions-grid">
+                <button class="btn btn-primary" onclick="toggleLogging()">
+                    <span id="loggingBtnIcon">▶️</span>
+                    <span id="loggingBtnText">Iniciar Registro</span>
+                </button>
+                <button class="btn btn-warning" onclick="openSettings()">
+                    <span>⚙️</span>
+                    <span>Configuración</span>
+                </button>
+                <button class="btn btn-info" onclick="refreshStatus()">
+                    <span>🔄</span>
+                    <span>Actualizar Estado</span>
+                </button>
+                <button class="btn btn-success" onclick="saveChartImage()">
+                    <span>📸</span>
+                    <span>Guardar Gráfico</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">⚙️ Configuración del Sistema</h2>
+                <button class="close-btn" onclick="closeSettings()">&times;</button>
+            </div>
+            
+            <!-- Sensor Names Configuration -->
+            <div class="form-group">
+                <label>Nombres de Sensores:</label>
+                <div id="sensorNamesInputs"></div>
+            </div>
+            
+            <!-- ========== NUEVA SECCIÓN DE UMBRALES ========== -->
+            <div class="thresholds-section">
+                <h3>⚠️ Umbrales de Alarma</h3>
+                <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+                    Define los límites de temperatura para cada sensor. Se enviará una alerta a Telegram cuando se supere el umbral.
+                </p>
+                <div id="thresholdsInputs"></div>
+                <button class="btn btn-primary" onclick="saveThresholds()" style="margin-top: 10px;">
+                    <span>💾</span> Guardar Umbrales
+                </button>
+            </div>
+            <!-- =============================================== -->
+
+            <!-- ========== SECCIÓN DE OFFSETS ========== -->
+            <div class="thresholds-section" style="margin-top:20px;">
+                <h3>🔧 Calibración (Offset)</h3>
+                <p style="font-size: 13px; color: #666; margin-bottom: 15px;">
+                    Ajuste fino para cada sensor (rango -5.0 a 5.0 °C). El valor se suma a la temperatura leída.
+                </p>
+                <div id="offsetsInputs"></div>
+                <button class="btn btn-primary" onclick="saveOffsets()" style="margin-top: 10px;">
+                    <span>💾</span> Guardar Offsets
+                </button>
+            </div>
+            <!-- ============================================== -->
+            
+            <!-- Sección de Configuración WiFi -->
+            <div class="wifi-config-section">
+                <h3>📡 Gestión de Redes WiFi</h3>
+                <div class="form-group">
+                    <h4>➕ Agregar Nueva Red</h4>
+                    <div class="input-row">
+                        <label for="newSSID">SSID:</label>
+                        <input type="text" id="newSSID" class="control-input" placeholder="Nombre de la red">
+                    </div>
+                    <div class="input-row">
+                        <label for="newPassword">Contraseña:</label>
+                        <input type="password" id="newPassword" class="control-input" placeholder="Contraseña">
+                    </div>
+                    <div class="input-row">
+                        <label for="newPriority">Prioridad (1-10):</label>
+                        <select id="newPriority" class="control-input">
+                            <option value="1">1 - Más alta</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5" selected>5 - Media</option>
+                            <option value="6">6</option>
+                            <option value="7">7</option>
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10">10 - Más baja</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-success" onclick="addWiFiNetwork()" style="margin-top:10px;">
+                        <span>➕</span> Agregar Red
+                    </button>
+                </div>
+
+                <div class="form-group" style="margin-top:20px;">
+                    <h4>📋 Redes WiFi Guardadas</h4>
+                    <div id="savedNetworksList" class="networks-list">
+                        <p style="text-align:center;color:#666;">No hay redes configuradas.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- System Information -->
+            <div class="info-box">
+                <h4>Información del Sistema</h4>
+                <div class="info-item">
+                    <span>Modo Actual:</span>
+                    <span class="info-value" id="currentMode">--</span>
+                </div>
+                <div class="info-item">
+                    <span>IP del Dispositivo:</span>
+                    <span class="info-value" id="deviceIPModal">--</span>
+                </div>
+                <div class="info-item">
+                    <span>Memoria RAM Libre:</span>
+                    <span class="info-value" id="freeHeap">0 KB</span>
+                </div>
+                <div class="info-item">
+                    <span>Registros en Buffer:</span>
+                    <span class="info-value" id="bufferRecords">0</span>
+                </div>
+                <div class="info-item">
+                    <span>Registros Totales:</span>
+                    <span class="info-value" id="totalRecordsInfo">0</span>
+                </div>
+                <div class="info-item">
+                    <span>Clientes Conectados:</span>
+                    <span class="info-value" id="connectedClientsInfo">0</span>
+                </div>
+                <div class="info-item">
+                    <span>Hora Sincronizada:</span>
+                    <span class="info-value" id="timeSyncedInfo">No</span>
+                </div>
+            </div>
+            
+            <div class="btn-group" style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="saveSettings()">
+                    <span>💾</span>
+                    <span>Guardar Configuración</span>
+                </button>
+                <button class="btn btn-secondary" onclick="closeSettings()">
+                    <span>❌</span>
+                    <span>Cancelar</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let ws;
+        let chart;
+        let sensorData = [];
+        let sensorNames = ['Sensor 1', 'Sensor 2', 'Sensor 3', 'Sensor 4'];
+        let loggingEnabled = false;
+        let systemStatus = {};
+        let isAPMode = false;
+        let wifiNetworks = [];
+        
+        // Variables para control del gráfico
+        let yMin = 0;
+        let yMax = 50;
+        let yStep = 5;
+        let timeRangeSeconds = 43200; // 12 horas por defecto
+        let windowStartTimestamp = null;
+        let autoFollow = true;
+        let timeDivision = 3600;
+        
+        // Variables para estadísticas
+        let sensorStats = [
+            { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] },
+            { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] },
+            { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] },
+            { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] }
+        ];
+        
+        // Variables para umbrales
+        let sensorThresholds = [
+            { low: 10.0, high: 40.0, enabled: true },
+            { low: 10.0, high: 40.0, enabled: true },
+            { low: 10.0, high: 40.0, enabled: true },
+            { low: 10.0, high: 40.0, enabled: true }
+        ];
+       
+        // variables para offset de sensores (calibración)
+        let sensorOffsets = [0.0, 0.0, 0.0, 0.0];
+
+        // Variables para conexión dual
+        let mqttClient = null;
+        let localConnected = false;
+        let remoteConnected = false;
+        
+        const colors = [
+            { bg: 'rgb(255, 99, 132)', border: 'rgb(255, 99, 132)' },
+            { bg: 'rgb(54, 162, 235)', border: 'rgb(54, 162, 235)' },
+            { bg: 'rgb(255, 205, 86)', border: 'rgb(255, 205, 86)' },
+            { bg: 'rgb(75, 192, 192)', border: 'rgb(75, 192, 192)' }
+        ];
+        
+        let lastKnownValues = [null, null, null, null];
+        let lastKnownConnections = [false, false, false, false];
+        
+        let totalBatchesExpected = 0;
+        let batchesReceived = 0;
+        let totalHistoricalRecords = 0;
+        let isReceivingHistoricalData = false;
+        let currentBatchIndex = -1;
+
+        // Inicializar WebSocket
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            console.log('🔌 Conectando WebSocket:', wsUrl);
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                console.log('✅ WebSocket conectado');
+                localConnected = true;
+                updateConnectionStatus();
+                updateConnectionStatus(true);// este parece estar repetido, revisar si es necesario
+                refreshStatus();
+                requestWiFiNetworks();
+                requestThresholds(); // <-- Solicitar umbrales al conectar
+                requestOffsets();  // <-- Solicitar offsets de sensores al conectar
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (error) {
+                    console.error('❌ Error parsing message:', error, event.data);
+                }
+            };
+            
+            ws.onclose = () => {
+                console.log('❌ WebSocket desconectado');
+                localConnected = false;
+                updateConnectionStatus();
+                updateConnectionStatus(false);// este parece estar repetido, revisar si es necesario
+                setTimeout(initWebSocket, 3000);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('❌ WebSocket error:', error);
+            };
+        }
+
+        // ===== MODO REMOTO (MQTT sobre WebSockets a HiveMQ) =====
+        function initRemoteMQTT() {
+            const brokerUrl = 'wss://54152ee7d24343d08046a46d283777b0.s1.eu.hivemq.cloud:8884/mqtt';
+            const options = {
+                clientId: 'dashboard_' + Math.random().toString(16).substr(2, 8),
+                username: 'ESP32_Prueba',           // <-- REEMPLAZA CON TU USUARIO
+                password: 'AaBbCcDdZzYyXx010203102030', // <-- REEMPLAZA CON TU CONTRASEÑA
+                clean: true
+            };
+    
+            console.log('☁️ Conectando a HiveMQ Cloud...');
+            mqttClient = mqtt.connect(brokerUrl, options);
+    
+            mqttClient.on('connect', () => {
+                console.log('✅ MQTT REMOTO conectado a HiveMQ');
+                remoteConnected = true;
+                updateConnectionStatus();
+        
+                mqttClient.subscribe('casa/sensor/temperatura', (err) => {
+                    if (!err) console.log('📡 Suscrito a topic remoto');
+                });
+            });
+    
+            mqttClient.on('message', (topic, message) => {
+                try {
+                    const data = JSON.parse(message.toString());
+                    handleMessage(data);    // La MISMA función que para WebSocket
+                } catch (e) {
+                    console.error('❌ Error parsing MQTT message:', e);
+                }
+            });
+    
+            mqttClient.on('error', (err) => {
+                console.error('❌ Error MQTT:', err);
+                remoteConnected = false;
+                updateConnectionStatus();
+            });
+    
+            mqttClient.on('close', () => {
+                console.log('❌ Conexión MQTT cerrada');
+                remoteConnected = false;
+                updateConnectionStatus();
+            });
+        }
+
+        function handleMessage(data) {
+            console.log('📨 Mensaje recibido:', data.type, data);
+            
+            switch(data.type) {
+                case 'sensor_data':
+                    updateSensorData(data);
+                    updateChartLegendWithValues(data);
+                    updateStatistics(data);
+                    break;
+                    
+                case 'sensor_names':
+                    sensorNames = data.names;
+                    updateStatisticsDisplay();
+                    updateChartLegendNames();
+                    break;
+                    
+                case 'system_status':
+                    systemStatus = data;
+                    isAPMode = data.mode === 'AP';
+                    updateSystemStatus();
+                    updateDataInfo();
+                    break;
+                    
+                case 'priority_data':
+                    processDataBatch(data.records, false);
+                    break;
+                    
+                case 'recent_data':
+                    processDataBatch(data.records, false);
+                    break;
+                    
+                case 'data_batch':
+                    handleDataBatch(data);
+                    break;
+                    
+                case 'logging_changed':
+                    loggingEnabled = data.enabled;
+                    updateLoggingButton();
+                    break;
+                    
+                case 'data_cleared':
+                    sensorData = [];
+                    resetStatistics();
+                    updateChart();
+                    updateSystemStatus();
+                    break;
+                    
+                case 'system_message':
+                    showNotification(data.message);
+                    break;
+                    
+                case 'wifi_networks':
+                    handleWiFiNetworksMessage(data);
+                    break;
+                    
+                case 'batch_cancelled':
+                    hideLoadingOverlay();
+                    showNotification('Carga de datos cancelada');
+                    break;
+                    
+                // ========== NUEVO: Manejar mensaje de umbrales ==========
+                case 'thresholds':
+                    sensorThresholds = data.thresholds;
+                    if (settingsModalOpen) {
+                        updateThresholdsInputs();
+                    }
+                    break;
+                // manejar 
+                case 'offsets':
+                    sensorOffsets = data.offsets;
+                    if (settingsModalOpen) {
+                        updateOffsetsInputs();
+                    }
+                    break;
+                // =======================================================
+            }
+        }
+
+        function handleDataBatch(data) {
+            if (!isReceivingHistoricalData && data.batchIndex === 0) {
+                isReceivingHistoricalData = true;
+                totalBatchesExpected = data.totalBatches || 0;
+                totalHistoricalRecords = data.totalRecords || 0;
+                batchesReceived = 0;
+                currentBatchIndex = 0;
+                
+                console.log(`📦 Iniciando recepción de datos históricos: ${totalHistoricalRecords} registros en ${totalBatchesExpected} lotes`);
+                
+                sensorData = [];
+            }
+            
+            if (data.batchIndex === currentBatchIndex) {
+                const recordsInBatch = data.recordsInBatch || 0;
+                console.log(`📦 Procesando lote ${data.batchIndex + 1}/${totalBatchesExpected}: ${recordsInBatch} registros`);
+                
+                if (data.records && Array.isArray(data.records)) {
+                    processDataBatch(data.records, true);
+                }
+                
+                batchesReceived++;
+                currentBatchIndex++;
+                
+                updateLoadingProgress();
+                
+                confirmBatchReceipt(data.batchIndex);
+                
+                if (currentBatchIndex < totalBatchesExpected) {
+                    requestNextBatch(currentBatchIndex);
+                } else {
+                    finishHistoricalDataLoading();
+                }
+            } else {
+                console.warn(`⚠️ Lote recibido fuera de orden: esperado ${currentBatchIndex}, recibido ${data.batchIndex}`);
+            }
+        }
+
+        function requestNextBatch(batchIndex) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.error('❌ WebSocket no conectado para solicitar lote');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                cmd: 'request_data_batch',
+                batchIndex: batchIndex,
+                batchSize: 30
+            }));
+        }
+
+        function confirmBatchReceipt(batchIndex) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            ws.send(JSON.stringify({
+                cmd: 'confirm_batch',
+                batchIndex: batchIndex
+            }));
+        }
+
+        function finishHistoricalDataLoading() {
+            console.log(`✅ Carga completada: ${sensorData.length} registros recibidos`);
+            
+            isReceivingHistoricalData = false;
+            totalBatchesExpected = 0;
+            batchesReceived = 0;
+            currentBatchIndex = -1;
+            
+            sensorData.sort((a, b) => a.timestamp - b.timestamp);
+            
+            updateChart();
+            recalculateStatistics();
+            updateDataInfo();
+            
+            autoFollow = true;
+            if (sensorData.length > 0 && windowStartTimestamp === null) {
+                const lastTimestamp = sensorData[sensorData.length - 1].timestamp;
+                windowStartTimestamp = lastTimestamp - timeRangeSeconds * 1000;
+                const firstTimestamp = sensorData[0].timestamp;
+                if (windowStartTimestamp < firstTimestamp) windowStartTimestamp = firstTimestamp;
+            }
+            
+            hideLoadingOverlay();
+            
+            showNotification(`Datos históricos cargados: ${sensorData.length} registros`);
+        }
+
+        function updateLoadingProgress() {
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            const batchInfo = document.getElementById('batchInfo');
+            
+            if (progressFill && progressText && batchInfo) {
+                const progress = totalBatchesExpected > 0 ? 
+                    Math.round((batchesReceived / totalBatchesExpected) * 100) : 0;
+                
+                progressFill.style.width = `${progress}%`;
+                progressText.textContent = `${progress}%`;
+                batchInfo.textContent = `Lote ${batchesReceived} de ${totalBatchesExpected} (${totalHistoricalRecords} registros)`;
+            }
+        }
+
+        function showLoadingOverlay() {
+            const overlay = document.getElementById('chartLoading');
+            if (overlay) {
+                overlay.style.display = 'flex';
+                document.getElementById('progressFill').style.width = '0%';
+                document.getElementById('progressText').textContent = '0%';
+                document.getElementById('batchInfo').textContent = 'Esperando primer lote...';
+            }
+        }
+
+        function hideLoadingOverlay() {
+            const overlay = document.getElementById('chartLoading');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
+
+        // Funciones WiFi
+        function addWiFiNetwork() {
+            const ssid = document.getElementById('newSSID').value.trim();
+            const password = document.getElementById('newPassword').value;
+            const priority = parseInt(document.getElementById('newPriority').value);
+            
+            if (!ssid) {
+                showNotification('Por favor ingresa el SSID de la red');
+                return;
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                cmd: 'add_wifi_network',
+                ssid: ssid,
+                password: password,
+                priority: priority
+            }));
+            
+            document.getElementById('newSSID').value = '';
+            document.getElementById('newPassword').value = '';
+            
+            showNotification(`Red "${ssid}" agregada`);
+        }
+
+        function requestWiFiNetworks() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            ws.send(JSON.stringify({
+                cmd: 'get_wifi_networks'
+            }));
+        }
+
+        function handleWiFiNetworksMessage(data) {
+            if (data.type === 'wifi_networks') {
+                updateSavedNetworksList(data.networks);
+            }
+        }
+
+        function updateSavedNetworksList(networks) {
+            const container = document.getElementById('savedNetworksList');
+            
+            if (!networks || networks.length === 0) {
+                container.innerHTML = '<p style="text-align:center;color:#666;">No hay redes configuradas.</p>';
+                return;
+            }
+            
+            let html = '';
+            networks.forEach((network, index) => {
+                const statusIcon = network.lastSuccess ? '✅' : '❌';
+                const statusClass = network.lastSuccess ? 'status-success' : 'status-error';
+                const lastIP = network.lastIP ? `<br><small>Última IP: ${network.lastIP}</small>` : '';
+                
+                html += `
+                    <div class="network-item ${statusClass}">
+                        <div class="network-info">
+                            <strong>${network.ssid}</strong>
+                            <span class="network-priority">Prioridad: ${network.priority}</span>
+                            ${lastIP}
+                            <div class="network-status">
+                                ${statusIcon} ${network.lastSuccess ? 'Conexión exitosa' : 'Falló última conexión'}
+                            </div>
+                        </div>
+                        <div class="network-actions">
+                            <button class="btn btn-sm btn-test" onclick="testWiFiConnection('${network.ssid}')">
+                                🔄 Probar
+                            </button>
+                            <button class="btn btn-sm btn-remove" onclick="removeWiFiNetwork('${network.ssid}')">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        function testWiFiConnection(ssid) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                cmd: 'test_wifi_connection',
+                ssid: ssid
+            }));
+            
+            showNotification(`Probando conexión a "${ssid}"...`);
+        }
+
+        function removeWiFiNetwork(ssid) {
+            if (confirm(`¿Estás seguro de eliminar la red "${ssid}"?`)) {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    showNotification('WebSocket no conectado');
+                    return;
+                }
+                
+                ws.send(JSON.stringify({
+                    cmd: 'remove_wifi_network',
+                    ssid: ssid
+                }));
+                
+                showNotification(`Red "${ssid}" eliminada`);
+            }
+        }
+
+        // ========== NUEVAS FUNCIONES PARA UMBRALES ==========
+        function requestThresholds() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            
+            ws.send(JSON.stringify({
+                cmd: 'get_thresholds'
+            }));
+        }
+
+        function updateThresholdsInputs() {
+            const container = document.getElementById('thresholdsInputs');
+            if (!container) return;
+    
+            let html = '';
+            for (let i = 0; i < 4; i++) {
+                html += `
+                    <div class="threshold-row" data-sensor="${i}">
+                        <span class="sensor-name">${sensorNames[i]}</span>
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <input type="number" class="threshold-input" id="thresholdLow${i}" 
+                                value="${sensorThresholds[i].low}" step="0.1" min="-50" max="125">
+                            <span class="threshold-unit">°C</span>
+                        </div>
+                        <span style="color: #666;">a</span>
+                        <div style="display: flex; align-items: center; gap: 5px;">
+                            <input type="number" class="threshold-input" id="thresholdHigh${i}" 
+                                value="${sensorThresholds[i].high}" step="0.1" min="-50" max="125">
+                            <span class="threshold-unit">°C</span>
+                        </div>
+                        <div class="threshold-enabled">
+                            <label for="thresholdEnabled${i}" style="font-size: 13px;">Activo</label>
+                            <input type="checkbox" id="thresholdEnabled${i}" 
+                                ${sensorThresholds[i].enabled ? 'checked' : ''}>
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function saveThresholds() {
+            const thresholds = [];
+            for (let i = 0; i < 4; i++) {
+                thresholds.push({
+                    low: parseFloat(document.getElementById(`thresholdLow${i}`).value),
+                    high: parseFloat(document.getElementById(`thresholdHigh${i}`).value),
+                    enabled: document.getElementById(`thresholdEnabled${i}`).checked
+                });
+            }
+    
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+    
+            ws.send(JSON.stringify({
+                cmd: 'set_thresholds',
+                thresholds: thresholds
+            }));
+            // Solicitar umbrales actualizados para confirmar
+            setTimeout(requestThresholds, 500); // pequeño delay para que el servidor procese
+    
+            showNotification('Umbrales guardados');
+        }
+
+        // ========== NUEVAS FUNCIONES PARA OFFSETS ==========
+        function requestOffsets() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ cmd: 'get_offsets' }));
+        }
+
+        function updateOffsetsInputs() {
+            const container = document.getElementById('offsetsInputs');
+            if (!container) return;
+            let html = '';
+            for (let i = 0; i < 4; i++) {
+                html += `
+                    <div class="threshold-row" data-sensor="${i}">
+                        <span class="sensor-name">${sensorNames[i]}</span>
+                        <div style="display: flex; align-items: center; gap: 5px; flex:1;">
+                            <input type="number" class="threshold-input" id="offset${i}" 
+                                value="${sensorOffsets[i].toFixed(1)}" step="0.1" min="-5" max="5">
+                            <span class="threshold-unit">°C</span>
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function saveOffsets() {
+            const offsets = [];
+            for (let i = 0; i < 4; i++) {
+                offsets.push(parseFloat(document.getElementById(`offset${i}`).value));
+            }
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            ws.send(JSON.stringify({
+                cmd: 'set_offsets',
+                offsets: offsets
+            }));
+            setTimeout(requestOffsets, 500);
+            showNotification('Offsets guardados');
+        }
+        // ===================================================
+        
+        // ====================================================
+
+        function updateSensorData(data) {
+            const record = {
+                timestamp: data.timestamp * 1000,
+                temps: [],
+                connected: []
+            };
+            
+            for (let i = 1; i <= 4; i++) {
+                const tempKey = `temp${i}`;
+                const connectedKey = `connected${i}`;
+                
+                const temp = data[tempKey];
+                const connected = data[connectedKey];
+                
+                record.temps.push(temp);
+                record.connected.push(connected);
+                
+                lastKnownValues[i-1] = temp;
+                lastKnownConnections[i-1] = connected;
+            }
+            
+            sensorData.push(record);
+            
+            if (sensorData.length > 10000) {
+                sensorData = sensorData.slice(-5000);
+            }
+
+            if (autoFollow && sensorData.length > 0) {
+                const lastTimestamp = sensorData[sensorData.length - 1].timestamp;
+                windowStartTimestamp = lastTimestamp - timeRangeSeconds * 1000;
+                const firstTimestamp = sensorData[0].timestamp;
+                if (windowStartTimestamp < firstTimestamp) windowStartTimestamp = firstTimestamp;
+            }
+            
+            updateChart();
+            updateCurrentTime(data.timestamp);
+            updateTimeDisplay();
+        }
+
+        function processDataBatch(records, isHistorical = false) {
+            if (!records || !Array.isArray(records)) return;
+            
+            let addedCount = 0;
+            
+            records.forEach(record => {
+                if (record && record.t && record.v && record.c) {
+                    const newRecord = {
+                        timestamp: record.t * 1000,
+                        temps: record.v,
+                        connected: record.c
+                    };
+                    
+                    const exists = sensorData.some(r => r.timestamp === newRecord.timestamp);
+                    if (!exists) {
+                        sensorData.push(newRecord);
+                        addedCount++;
+                    }
+                }
+            });
+            
+            console.log(`✅ ${addedCount} registros agregados del lote`);
+            
+            if (!isReceivingHistoricalData) {
+                sensorData.sort((a, b) => a.timestamp - b.timestamp);
+                
+                if (sensorData.length > 0 && windowStartTimestamp === null) {
+                    const lastTimestamp = sensorData[sensorData.length - 1].timestamp;
+                    windowStartTimestamp = lastTimestamp - timeRangeSeconds * 1000;
+                    const firstTimestamp = sensorData[0].timestamp;
+                    if (windowStartTimestamp < firstTimestamp) windowStartTimestamp = firstTimestamp;
+                }
+                updateChart();
+                recalculateStatistics();
+                updateDataInfo();
+            }
+        }
+
+        function updateDataInfo() {
+            const dataInfo = document.getElementById('dataInfo');
+            if (dataInfo) {
+                dataInfo.textContent = `${sensorData.length} registros cargados`;
+            }
+            
+            const recordCount = document.getElementById('recordCount');
+            if (recordCount) {
+                recordCount.textContent = `${sensorData.length} registros`;
+            }
+        }
+
+        function updateStatistics(liveData) {
+            for (let i = 0; i < 4; i++) {
+                const temp = liveData[`temp${i + 1}`];
+                const connected = liveData[`connected${i + 1}`];
+                
+                if (connected && temp !== null) {
+                    sensorStats[i].current = temp;
+                    
+                    sensorStats[i].values.push(temp);
+                    
+                    if (sensorStats[i].values.length > 100) {
+                        sensorStats[i].values.shift();
+                    }
+                    
+                    if (sensorStats[i].max === null || temp > sensorStats[i].max) {
+                        sensorStats[i].max = temp;
+                    }
+                    
+                    if (sensorStats[i].min === null || temp < sensorStats[i].min) {
+                        sensorStats[i].min = temp;
+                    }
+                    
+                    if (sensorStats[i].values.length > 0) {
+                        const sum = sensorStats[i].values.reduce((a, b) => a + b, 0);
+                        sensorStats[i].avg = sum / sensorStats[i].values.length;
+                    }
+                    
+                    if (sensorStats[i].values.length >= 20) {
+                        const recentValues = sensorStats[i].values.slice(-10);
+                        const previousValues = sensorStats[i].values.slice(-20, -10);
+                        
+                        const recentAvg = recentValues.reduce((a, b) => a + b, 0) / recentValues.length;
+                        const previousAvg = previousValues.reduce((a, b) => a + b, 0) / previousValues.length;
+                        
+                        const trendDiff = recentAvg - previousAvg;
+                        
+                        if (trendDiff > 0.1) sensorStats[i].trend = 'up';
+                        else if (trendDiff < -0.1) sensorStats[i].trend = 'down';
+                        else sensorStats[i].trend = 'stable';
+                    }
+                }
+            }
+            
+            updateStatisticsDisplay();
+            updateSummaryStatistics();
+            updateStatsTimeRange();
+        }
+
+        function recalculateStatistics() {
+            if (sensorData.length === 0) return;
+            
+            resetStatistics();
+            
+            const visibleData = getVisibleData();
+            
+            for (let i = 0; i < 4; i++) {
+                const sensorValues = [];
+                
+                visibleData.forEach(record => {
+                    if (record.connected[i] && record.temps[i] !== null) {
+                        sensorValues.push(record.temps[i]);
+                    }
+                });
+                
+                if (sensorValues.length > 0) {
+                    sensorStats[i].current = sensorValues[sensorValues.length - 1];
+                    sensorStats[i].max = Math.max(...sensorValues);
+                    sensorStats[i].min = Math.min(...sensorValues);
+                    sensorStats[i].avg = sensorValues.reduce((a, b) => a + b, 0) / sensorValues.length;
+                    sensorStats[i].values = sensorValues;
+                    
+                    if (sensorValues.length >= 6) {
+                        const third = Math.floor(sensorValues.length / 3);
+                        const recentValues = sensorValues.slice(-third);
+                        const previousValues = sensorValues.slice(0, third);
+                        
+                        const recentAvg = recentValues.reduce((a, b) => a + b, 0) / recentValues.length;
+                        const previousAvg = previousValues.reduce((a, b) => a + b, 0) / previousValues.length;
+                        
+                        const trendDiff = recentAvg - previousAvg;
+                        
+                        if (trendDiff > 0.1) sensorStats[i].trend = 'up';
+                        else if (trendDiff < -0.1) sensorStats[i].trend = 'down';
+                        else sensorStats[i].trend = 'stable';
+                    }
+                }
+            }
+            
+            updateStatisticsDisplay();
+            updateSummaryStatistics();
+            updateStatsTimeRange();
+        }
+
+        function resetStatistics() {
+            sensorStats = [
+                { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] },
+                { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] },
+                { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] },
+                { current: null, max: null, min: null, avg: null, trend: 'stable', values: [] }
+            ];
+            
+            updateStatisticsDisplay();
+            updateSummaryStatistics();
+        }
+
+        function updateStatisticsDisplay() {
+            for (let i = 0; i < 4; i++) {
+                const stat = sensorStats[i];
+                
+                const card = document.getElementById(`sensorStats${i + 1}`);
+                if (card) {
+                    const trendElement = card.querySelector('.stat-trend');
+                    if (trendElement) {
+                        trendElement.textContent = stat.trend === 'up' ? '↗ Subiendo' : 
+                                                  stat.trend === 'down' ? '↘ Bajando' : '→ Estable';
+                        trendElement.className = `stat-trend ${stat.trend}`;
+                    }
+                    
+                    const titleElement = card.querySelector('.stat-title');
+                    if (titleElement) {
+                        titleElement.textContent = sensorNames[i];
+                    }
+                }
+                
+                document.getElementById(`stat${i + 1}Current`).textContent = 
+                    stat.current !== null ? `${stat.current.toFixed(1)}°C` : '--°C';
+                document.getElementById(`stat${i + 1}Max`).textContent = 
+                    stat.max !== null ? `${stat.max.toFixed(1)}°C` : '--°C';
+                document.getElementById(`stat${i + 1}Min`).textContent = 
+                    stat.min !== null ? `${stat.min.toFixed(1)}°C` : '--°C';
+                document.getElementById(`stat${i + 1}Avg`).textContent = 
+                    stat.avg !== null ? `${stat.avg.toFixed(1)}°C` : '--°C';
+            }
+        }
+
+        function updateSummaryStatistics() {
+            let globalMin = Infinity;
+            let globalMax = -Infinity;
+            let maxVariation = 0;
+            let validCount = 0;
+            let totalCount = 0;
+            
+            sensorStats.forEach(stat => {
+                if (stat.min !== null && stat.min < globalMin) globalMin = stat.min;
+                if (stat.max !== null && stat.max > globalMax) globalMax = stat.max;
+                if (stat.min !== null && stat.max !== null) {
+                    const variation = stat.max - stat.min;
+                    if (variation > maxVariation) maxVariation = variation;
+                }
+                
+                if (stat.avg !== null) validCount++;
+                totalCount++;
+            });
+            
+            const trends = sensorStats.map(s => s.trend);
+            const upCount = trends.filter(t => t === 'up').length;
+            const downCount = trends.filter(t => t === 'down').length;
+            const stableCount = trends.filter(t => t === 'stable').length;
+            
+            let avgTrend = 'Estable';
+            if (upCount > downCount && upCount > stableCount) avgTrend = 'Subiendo';
+            else if (downCount > upCount && downCount > stableCount) avgTrend = 'Bajando';
+            
+            document.getElementById('totalRange').textContent = 
+                globalMin !== Infinity && globalMax !== -Infinity ? 
+                `${globalMin.toFixed(1)}°C a ${globalMax.toFixed(1)}°C` : '--°C a --°C';
+            
+            document.getElementById('maxVariation').textContent = 
+                maxVariation > 0 ? `${maxVariation.toFixed(1)}°C` : '--°C';
+            
+            document.getElementById('avgTrend').textContent = avgTrend;
+            
+            const validPercentage = totalCount > 0 ? Math.round((validCount / totalCount) * 100) : 0;
+            document.getElementById('validData').textContent = `${validPercentage}%`;
+        }
+
+        function updateStatsTimeRange() {
+            const statsTimeRange = document.getElementById('statsTimeRange');
+            if (!statsTimeRange) return;
+            
+            let displayText = '';
+            if (timeRangeSeconds < 60) {
+                displayText = `${timeRangeSeconds} segundos`;
+            } else if (timeRangeSeconds < 3600) {
+                const minutes = Math.round(timeRangeSeconds / 60);
+                displayText = `${minutes} minuto${minutes !== 1 ? 's' : ''}`;
+            } else if (timeRangeSeconds < 86400) {
+                const hours = (timeRangeSeconds / 3600).toFixed(1);
+                displayText = `${hours} hora${hours !== '1.0' ? 's' : ''}`;
+            } else {
+                const days = (timeRangeSeconds / 86400).toFixed(1);
+                displayText = `${days} día${days !== '1.0' ? 's' : ''}`;
+            }
+            
+            statsTimeRange.textContent = displayText;
+        }
+
+        function updateChartLegendWithValues(liveData) {
+            const legendContainer = document.getElementById('chartLegend');
+            if (!legendContainer) return;
+            
+            let legendHTML = '';
+            
+            for (let i = 0; i < 4; i++) {
+                const temp = liveData[`temp${i + 1}`];
+                const connected = liveData[`connected${i + 1}`];
+                const displayTemp = (connected && temp !== null) ? temp.toFixed(1) : '--';
+                
+                legendHTML += `
+                    <div class="legend-item" onclick="toggleSensorVisibility(${i})" 
+                         data-sensor-index="${i}">
+                        <div class="legend-color" style="background: ${colors[i].bg};"></div>
+                        <div class="legend-text">${sensorNames[i]}:</div>
+                        <div class="legend-value">${displayTemp}°C</div>
+                    </div>
+                `;
+            }
+            
+            legendContainer.innerHTML = legendHTML;
+        }
+
+        function updateChartLegendNames() {
+            const legendContainer = document.getElementById('chartLegend');
+            if (!legendContainer) return;
+            
+            const legendItems = legendContainer.querySelectorAll('.legend-item');
+            legendItems.forEach((item, index) => {
+                if (index < sensorNames.length) {
+                    const textElement = item.querySelector('.legend-text');
+                    if (textElement) {
+                        textElement.textContent = sensorNames[index] + ':';
+                    }
+                }
+            });
+        }
+
+        function toggleSensorVisibility(sensorIndex) {
+            if (!chart) return;
+            
+            const dataset = chart.data.datasets[sensorIndex];
+            const newVisibility = !dataset.hidden;
+            
+            dataset.hidden = newVisibility;
+            chart.update();
+            
+            const legendItem = document.querySelector(`[data-sensor-index="${sensorIndex}"]`);
+            if (legendItem) {
+                legendItem.style.opacity = newVisibility ? '0.4' : '1';
+            }
+        }
+
+        function adjustYAxis(type, delta) {
+            const input = document.getElementById(type === 'min' ? 'yMinInput' : 'yMaxInput');
+            let value = parseFloat(input.value) + delta;
+            
+            if (type === 'min') {
+                yMin = value;
+                if (yMin >= yMax - 5) yMin = yMax - 5;
+            } else {
+                yMax = value;
+                if (yMax <= yMin + 5) yMax = yMin + 5;
+            }
+            
+            input.value = Math.round(value);
+            updateChart();
+        }
+
+        function setYAxis(type, value) {
+            const numValue = parseFloat(value);
+            if (isNaN(numValue)) return;
+            
+            if (type === 'min') {
+                yMin = numValue;
+            } else {
+                yMax = numValue;
+            }
+            
+            if (yMin >= yMax) {
+                if (type === 'min') yMin = yMax - 0.1;
+                else yMax = yMin + 0.1;
+            }
+            
+            updateChart();
+        }
+
+        function adjustYStep(delta) {
+            yStep = Math.max(0.1, yStep + delta);
+            document.getElementById('yStepInput').value = yStep.toFixed(1);
+            updateChart();
+        }
+
+        function setYStep(value) {
+            const numValue = parseFloat(value);
+            if (isNaN(numValue) || numValue < 0.1) return;
+            
+            yStep = numValue;
+            updateChart();
+        }
+
+        function autoScaleYAxis() {
+            if (sensorData.length === 0) return;
+    
+            const visibleData = getVisibleData();
+            if (visibleData.length === 0) return;
+    
+            let minTemp = Infinity;
+            let maxTemp = -Infinity;
+    
+            visibleData.forEach(record => {
+                record.temps.forEach((temp, index) => {
+                    if (record.connected[index] && temp !== null) {
+                        if (temp < minTemp) minTemp = temp;
+                        if (temp > maxTemp) maxTemp = temp;
+                    }
+                });
+            });
+    
+            if (minTemp === Infinity || maxTemp === -Infinity) return;
+    
+            let range = maxTemp - minTemp;
+            if (range < 1) {
+                let mid = (minTemp + maxTemp) / 2;
+                minTemp = mid - 1;
+                maxTemp = mid + 1;
+            }
+    
+            const margin = Math.max((maxTemp - minTemp) * 0.1, 0.5);
+            yMin = Math.floor((minTemp - margin) * 10) / 10;
+            yMax = Math.ceil((maxTemp + margin) * 10) / 10;
+    
+            document.getElementById('yMinInput').value = yMin.toFixed(1);
+            document.getElementById('yMaxInput').value = yMax.toFixed(1);
+    
+            updateChart();
+            showNotification('Escala automática aplicada');
+        }
+
+        function changeTimeRange() {
+            const select = document.getElementById('timeRange');
+            const value = parseInt(select.value);
+            
+            if (value === 0) {
+                timeRangeSeconds = getTotalTimeRange() * 3600;
+            } else {
+                timeRangeSeconds = value;
+            }
+            
+            if (sensorData.length > 0) {
+                const lastTimestamp = sensorData[sensorData.length - 1].timestamp;
+                const firstTimestamp = sensorData[0].timestamp;
+                
+                if (autoFollow) {
+                    windowStartTimestamp = lastTimestamp - timeRangeSeconds * 1000;
+                } else {
+                    if (windowStartTimestamp > lastTimestamp - timeRangeSeconds * 1000) {
+                        windowStartTimestamp = lastTimestamp - timeRangeSeconds * 1000;
+                    }
+                    if (windowStartTimestamp < firstTimestamp) {
+                        windowStartTimestamp = firstTimestamp;
+                    }
+                }
+            } else {
+                windowStartTimestamp = null;
+            }
+            
+            updateTimeDisplay();
+            updateChart();
+            recalculateStatistics();
+        }
+
+        function setTimeDivision() {
+            const select = document.getElementById('timeDivision');
+            const value = select.value;
+            
+            if (value === 'auto') {
+                timeDivision = 'auto';
+            } else {
+                timeDivision = parseInt(value);
+            }
+            
+            updateChart();
+        }
+
+        function scrollTimeWindow(newTimestamp) {
+            windowStartTimestamp = newTimestamp;
+            updateTimeDisplay();
+            updateChart();
+            recalculateStatistics();
+        }
+
+        function moveTimeLeft(percent) {
+            if (sensorData.length === 0 || windowStartTimestamp === null) return;
+            
+            const deltaMs = timeRangeSeconds * (percent / 100) * 1000;
+            let newStart = windowStartTimestamp - deltaMs;
+            
+            const firstTimestamp = sensorData[0].timestamp;
+            if (newStart < firstTimestamp) newStart = firstTimestamp;
+
+            autoFollow = false;
+            scrollTimeWindow(newStart);
+        }
+
+        function moveTimeRight(percent) {
+            if (sensorData.length === 0 || windowStartTimestamp === null) return;
+            
+            const deltaMs = timeRangeSeconds * (percent / 100) * 1000;
+            const lastTimestamp = sensorData[sensorData.length - 1].timestamp;
+            let newStart = windowStartTimestamp + deltaMs;
+            
+            const maxStart = lastTimestamp - timeRangeSeconds * 1000;
+            if (newStart > maxStart) newStart = maxStart;
+            if (newStart < sensorData[0].timestamp) newStart = sensorData[0].timestamp;
+            
+            if (Math.abs(newStart - maxStart) < 100) {
+                autoFollow = true;
+            } else {
+                autoFollow = false;
+            }
+            scrollTimeWindow(newStart);
+        }
+
+        function resetTimeSlider() {
+            if (sensorData.length === 0) return;
+            autoFollow = true;
+            const lastTimestamp = sensorData[sensorData.length - 1].timestamp;
+            windowStartTimestamp = lastTimestamp - timeRangeSeconds * 1000;
+            const firstTimestamp = sensorData[0].timestamp;
+            if (windowStartTimestamp < firstTimestamp) windowStartTimestamp = firstTimestamp;
+            updateTimeDisplay();
+            updateChart();
+            recalculateStatistics();
+            showNotification('Desplazamiento reiniciado');
+        }
+
+        function updateTimeDisplay() {
+            if (sensorData.length === 0 || windowStartTimestamp === null) {
+                document.getElementById('timeStartDisplay').textContent = '--:--';
+                document.getElementById('timeEndDisplay').textContent = '--:--';
+                document.getElementById('currentTimePosition').textContent = 'Sin datos';
+                document.getElementById('timeWindowInfo').textContent = 'Ventana: --';
+                return;
+            }
+            
+            const start = new Date(windowStartTimestamp);
+            const end = new Date(windowStartTimestamp + timeRangeSeconds * 1000);
+            
+            const formatTime = (date) => {
+                if (timeRangeSeconds < 3600) {
+                    return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                } else {
+                    return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                }
+            };
+            
+            const formatDate = (date) => {
+                const today = new Date();
+                if (date.toDateString() === today.toDateString()) {
+                    return 'Hoy ' + formatTime(date);
+                }
+                return date.toLocaleDateString([], {day: '2-digit', month: 'short'}) + ' ' + formatTime(date);
+            };
+            
+            document.getElementById('timeStartDisplay').textContent = formatTime(start);
+            document.getElementById('timeEndDisplay').textContent = formatTime(end);
+            document.getElementById('currentTimePosition').textContent = 
+                `${formatDate(start)} - ${formatDate(end)}`;
+            
+            let windowText = '';
+            if (timeRangeSeconds < 60) {
+                windowText = `${timeRangeSeconds}s`;
+            } else if (timeRangeSeconds < 3600) {
+                windowText = `${Math.round(timeRangeSeconds/60)}m`;
+            } else if (timeRangeSeconds < 86400) {
+                windowText = `${(timeRangeSeconds/3600).toFixed(1)}h`;
+            } else {
+                windowText = `${(timeRangeSeconds/86400).toFixed(1)}d`;
+            }
+            document.getElementById('timeWindowInfo').textContent = `Ventana: ${windowText}`;
+        }
+
+        function getTotalTimeRange() {
+            if (sensorData.length < 2) return 24;
+            
+            const first = new Date(sensorData[0].timestamp);
+            const last = new Date(sensorData[sensorData.length - 1].timestamp);
+            const diffHours = (last - first) / 3600000;
+            
+            return Math.max(24, Math.ceil(diffHours));
+        }
+
+        function getVisibleData() {
+            if (sensorData.length === 0 || windowStartTimestamp === null) return [];
+            
+            const start = windowStartTimestamp;
+            const end = start + timeRangeSeconds * 1000;
+            
+            return sensorData.filter(d => d.timestamp >= start && d.timestamp <= end);
+        }
+
+        function initChart() {
+            if (typeof Chart === 'undefined') {
+                console.log('⏳ Chart.js no cargado aún, reintentando...');
+                setTimeout(initChart, 500);
+                return;
+            }
+            
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            if (!ctx) return;
+            
+            const datasets = [];
+            for (let i = 0; i < 4; i++) {
+                datasets.push({
+                    label: sensorNames[i],
+                    data: [],
+                    borderColor: colors[i].border,
+                    backgroundColor: colors[i].bg + '20',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    pointBackgroundColor: colors[i].bg,
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 1,
+                    spanGaps: true,
+                    borderWidth: 2,
+                    hidden: false,
+                    showLine: true
+                });
+            }
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.parsed.y;
+                                    const datasetLabel = context.dataset.label || '';
+                                    return value !== null ? 
+                                        `${datasetLabel}: ${value.toFixed(1)}°C` :
+                                        `${datasetLabel}: Sin datos`;
+                                },
+                                title: function(context) {
+                                    const date = new Date(context[0].parsed.x);
+                                    if (timeRangeSeconds < 3600) {
+                                        return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                                    } else {
+                                        return date.toLocaleString();
+                                    }
+                                }
+                            },
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleFont: { size: 12 },
+                            bodyFont: { size: 12 },
+                            padding: 10
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: getTimeUnit(),
+                                stepSize: getTimeStep(),
+                                displayFormats: getTimeDisplayFormats()
+                            },
+                            title: {
+                                display: true,
+                                text: 'Tiempo',
+                                font: { size: 12, weight: 'bold' },
+                                color: '#666'
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.05)'
+                            },
+                            ticks: {
+                                maxRotation: 45,
+                                font: { size: 10 },
+                                autoSkip: true,
+                                maxTicksLimit: 10
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Temperatura (°C)',
+                                font: { size: 12, weight: 'bold' },
+                                color: '#666'
+                            },
+                            min: yMin,
+                            max: yMax,
+                            ticks: {
+                                stepSize: yStep,
+                                font: { size: 10 }
+                            },
+                            grid: {
+                                color: 'rgba(0,0,0,0.05)'
+                            }
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
+                }
+            });
+        }
+
+        function getTimeUnit() {
+            if (timeDivision === 'auto') {
+                if (timeRangeSeconds <= 300) {
+                    return 'second';
+                } else if (timeRangeSeconds <= 7200) {
+                    return 'minute';
+                } else if (timeRangeSeconds <= 172800) {
+                    return 'hour';
+                } else {
+                    return 'day';
+                }
+            } else {
+                if (timeDivision <= 60) {
+                    return 'second';
+                } else if (timeDivision <= 3600) {
+                    return 'minute';
+                } else if (timeDivision <= 86400) {
+                    return 'hour';
+                } else {
+                    return 'day';
+                }
+            }
+        }
+
+        function getTimeStep() {
+            if (timeDivision === 'auto') {
+                return undefined;
+            } else {
+                if (timeDivision <= 60) {
+                    return timeDivision;
+                } else if (timeDivision <= 3600) {
+                    return timeDivision / 60;
+                } else if (timeDivision <= 86400) {
+                    return timeDivision / 3600;
+                } else {
+                    return timeDivision / 86400;
+                }
+            }
+        }
+
+        function getTimeDisplayFormats() {
+            return {
+                second: 'HH:mm:ss',
+                minute: 'HH:mm',
+                hour: 'HH:mm',
+                day: 'dd/MM'
+            };
+        }
+
+        function updateChart() {
+            if (!chart) return;
+            
+            const visibleData = getVisibleData();
+            
+            for (let i = 0; i < 4; i++) {
+                const chartData = visibleData.map(d => ({
+                    x: d.timestamp,
+                    y: d.connected[i] && d.temps[i] !== null ? d.temps[i] : null
+                }));
+                
+                chart.data.datasets[i].data = chartData;
+                chart.data.datasets[i].label = sensorNames[i];
+            }
+            
+            chart.options.scales.y.min = yMin;
+            chart.options.scales.y.max = yMax;
+            chart.options.scales.y.ticks.stepSize = yStep;
+            
+            chart.options.scales.x.time.unit = getTimeUnit();
+            chart.options.scales.x.time.stepSize = getTimeStep();
+            chart.options.scales.x.time.displayFormats = getTimeDisplayFormats();
+            
+            if (visibleData.length > 0) {
+                const first = new Date(visibleData[0].timestamp);
+                const last = new Date(visibleData[visibleData.length - 1].timestamp);
+                
+                const margin = (last - first) * 0.02;
+                chart.options.scales.x.min = first.getTime() - margin;
+                chart.options.scales.x.max = last.getTime() + margin;
+            }
+            
+            chart.update('none');
+        }
+
+        function resetZoom() {
+            if (chart) {
+                chart.resetZoom();
+                showNotification('Zoom reiniciado');
+            }
+        }
+
+        function saveChartImage() {
+            if (!chart) return;
+            
+            const link = document.createElement('a');
+            link.download = `temperatura-${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
+            link.href = chart.toBase64Image();
+            link.click();
+            
+            showNotification('Gráfico guardado como imagen');
+        }
+
+        function debugChart() {
+            console.log('📊 DEBUG DEL GRÁFICO:');
+            console.log('📈 Datos sensores:', sensorData.length);
+            console.log('🎛️ Controles - Y:', {min: yMin, max: yMax, step: yStep});
+            console.log('⏰ Tiempo:', {rango: timeRangeSeconds, windowStart: new Date(windowStartTimestamp).toLocaleString()});
+            console.log('📊 Estadísticas:', sensorStats);
+            console.log('📡 Conexiones:', lastKnownConnections);
+            console.log('🌡️ Valores:', lastKnownValues);
+            console.log('⚠️ Umbrales:', sensorThresholds);
+            
+            if (sensorData.length > 0) {
+                console.log('📋 Primer registro:', {
+                    timestamp: new Date(sensorData[0].timestamp).toLocaleString(),
+                    temps: sensorData[0].temps,
+                    connected: sensorData[0].connected
+                });
+                console.log('📋 Último registro:', {
+                    timestamp: new Date(sensorData[sensorData.length - 1].timestamp).toLocaleString(),
+                    temps: sensorData[sensorData.length - 1].temps,
+                    connected: sensorData[sensorData.length - 1].connected
+                });
+            }
+            
+            showNotification('Información de debug mostrada en consola');
+        }
+
+        function updateSystemStatus() {
+            if (!systemStatus) return;
+            
+            const modeIndicator = document.getElementById('modeIndicator');
+            const deviceIP = document.getElementById('deviceIP');
+            
+            if (isAPMode) {
+                modeIndicator.textContent = 'MODO AP';
+                modeIndicator.className = 'mode-indicator mode-ap';
+                deviceIP.textContent = systemStatus.ip || '192.168.4.1';
+            } else {
+                modeIndicator.textContent = 'MODO WiFi';
+                modeIndicator.className = 'mode-indicator mode-sta';
+                deviceIP.textContent = systemStatus.ip || '--';
+            }
+            
+            loggingEnabled = systemStatus.logging || false;
+            updateLoggingButton();
+            
+            document.getElementById('currentMode').textContent = isAPMode ? 'Access Point' : 'Cliente WiFi';
+            document.getElementById('deviceIPModal').textContent = systemStatus.ip || '--';
+            document.getElementById('freeHeap').textContent = `${Math.round((systemStatus.freeHeap || 0) / 1024)} KB`;
+            document.getElementById('bufferRecords').textContent = systemStatus.bufferRecords || 0;
+            document.getElementById('totalRecordsInfo').textContent = systemStatus.totalRecords || 0;
+            document.getElementById('connectedClientsInfo').textContent = systemStatus.connectedClients || 0;
+            document.getElementById('timeSyncedInfo').textContent = systemStatus.timeSynced ? 'Sí' : 'No';
+        }
+
+        function updateLoggingButton() {
+            const btnText = document.getElementById('loggingBtnText');
+            const btnIcon = document.getElementById('loggingBtnIcon');
+            
+            if (loggingEnabled) {
+                btnText.textContent = 'Pausar Registro';
+                btnIcon.textContent = '⏸️';
+            } else {
+                btnText.textContent = 'Iniciar Registro';
+                btnIcon.textContent = '▶️';
+            }
+        }
+
+        function updateCurrentTime(timestamp) {
+            if (timestamp) {
+                const date = new Date(timestamp * 1000);
+                document.getElementById('currentTime').textContent = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            }
+        }
+
+        function updateConnectionStatus() {
+            const statusDot = document.getElementById('wsStatus');
+            const statusText = document.getElementById('wsStatusText');
+    
+            if (localConnected && remoteConnected) {
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = '🏠🌍 Local + Remoto';
+            } else if (localConnected) {
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = '🏠 Local (casa)';
+            } else if (remoteConnected) {
+                statusDot.className = 'status-dot connected';
+                statusText.textContent = '🌍 Remoto (internet)';
+            } else {
+                statusDot.className = 'status-dot disconnected';
+                statusText.textContent = 'Desconectado';
+            }
+        }
+
+        function loadHistoricalData() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            showLoadingOverlay();
+            
+            ws.send(JSON.stringify({
+                cmd: 'reload_all_data'
+            }));
+            
+            showNotification('Cargando datos históricos...');
+        }
+
+        function cancelLoading() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                cmd: 'cancel_loading'
+            }));
+            
+            isReceivingHistoricalData = false;
+            totalBatchesExpected = 0;
+            batchesReceived = 0;
+            currentBatchIndex = -1;
+            
+            hideLoadingOverlay();
+        }
+
+        function reloadAllData() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            ws.send(JSON.stringify({
+                cmd: 'reload_all_data'
+            }));
+            
+            showNotification('Recargando todos los datos...');
+        }
+
+        function toggleLogging() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            ws.send(JSON.stringify({ cmd: 'toggle_logging' }));
+        }
+
+        function exportData() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            ws.send(JSON.stringify({ cmd: 'export_data' }));
+            showNotification('Exportando datos...');
+        }
+
+        function clearData() {
+            if (confirm('¿Estás seguro de que quieres eliminar todos los datos? Esta acción no se puede deshacer.')) {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    showNotification('WebSocket no conectado');
+                    return;
+                }
+                ws.send(JSON.stringify({ cmd: 'clear_data' }));
+            }
+        }
+
+        function syncTime() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            ws.send(JSON.stringify({ cmd: 'sync_time' }));
+            showNotification('Sincronizando hora...');
+        }
+
+        function refreshStatus() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            ws.send(JSON.stringify({ cmd: 'get_status' }));
+            showNotification('Actualizando estado...');
+        }
+
+        let settingsModalOpen = false;
+
+        function openSettings() {
+            settingsModalOpen = true;
+            const modal = document.getElementById('settingsModal');
+            const container = document.getElementById('sensorNamesInputs');
+    
+            container.innerHTML = '';
+            sensorNames.forEach((name, index) => {
+                const div = document.createElement('div');
+                div.className = 'form-group';
+                div.style.marginBottom = '10px';
+                div.innerHTML = `
+                    <label>Sensor ${index + 1}:</label>
+                    <input type="text" id="sensorName${index}" value="${name}" 
+                        style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px;">
+                `;
+                container.appendChild(div);
+            });
+    
+            // Actualizar inputs de umbrales con los valores actuales
+            updateThresholdsInputs();
+
+            updateOffsetsInputs();   // <-- NUEVO
+            requestOffsets();        // <-- NUEVO (para refrescar)
+
+            // Solicitar umbrales actualizados (por si acaso)
+            requestThresholds();
+    
+            modal.style.display = 'block';
+}
+
+            function closeSettings() {
+                settingsModalOpen = false;
+                document.getElementById('settingsModal').style.display = 'none';
+            }
+
+
+        function saveSettings() {
+            const names = [];
+            for (let i = 0; i < 4; i++) {
+                const input = document.getElementById(`sensorName${i}`);
+                names.push(input.value.trim() || `Sensor ${i + 1}`);
+            }
+            
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket no conectado');
+                return;
+            }
+            
+            ws.send(JSON.stringify({ cmd: 'set_names', names: names }));
+            closeSettings();
+            showNotification('Configuración guardada');
+        }
+
+        function showNotification(message) {
+            const existingNotifications = document.querySelectorAll('.notification');
+            existingNotifications.forEach(n => n.remove());
+            
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: rgba(0,0,0,0.9);
+                color: white;
+                padding: 15px 20px;
+                border-radius: 10px;
+                z-index: 10000;
+                animation: slideIn 0.3s ease;
+                max-width: 300px;
+                font-size: 14px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                backdrop-filter: blur(10px);
+            `;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        window.onclick = (event) => {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        };
+
+        window.onload = () => {
+            console.log('🚀 Inicializando aplicación...');
+            
+            const waitForChart = setInterval(() => {
+                if (typeof Chart !== 'undefined') {
+                    clearInterval(waitForChart);
+                    initChart();
+                    initWebSocket();
+                    initRemoteMQTT();  // <-- Iniciar también MQTT remoto
+                    autoFollow = true;
+                    updateStatisticsDisplay();
+                    updateTimeDisplay();
+                    updateStatsTimeRange();
+                    
+                    updateChartLegendWithValues({
+                        temp1: null,
+                        temp2: null,
+                        temp3: null,
+                        temp4: null,
+                        connected1: false,
+                        connected2: false,
+                        connected3: false,
+                        connected4: false
+                    });
+                    
+                    console.log('✅ Aplicación inicializada');
+                }
+            }, 100);
+            
+            setInterval(() => {
+                const now = new Date();
+                document.getElementById('currentTime').textContent = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+            }, 1000);
+        };
+
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(-10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>
